@@ -99,7 +99,7 @@ def pull_comments(hn_id, keywords):
 
         # search string for keywords
         for keyword in keywords:
-            if keyword in body:
+            if keyword.upper() in body.upper():
                 relevant_comments[parser_id] = [author, body]
                 parser_id += 1
                 continue
