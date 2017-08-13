@@ -161,13 +161,13 @@ def main(argv):
 
     # write to document
     with open(filepath, 'w') as outfile:
-        outfile.write(BOILERPLATE.encode('utf-8') + '\n')
+        outfile.write(BOILERPLATE + '\n')
         outfile.write('Month Searched: %s\n' % current_month)
         outfile.write('Keywords Used: %s\n\n' % ', '.join(keywords))
         for key in comments:
             outfile.write('>>>> %s: \n' % key)
-            outfile.write(comments[key][0].encode('utf-8') + ' --- \n')
-            outfile.write(comments[key][1].encode('utf-8') + '\n\n')
+            outfile.write(comments[key][0] + ' --- \n')
+            outfile.write(comments[key][1] + '\n\n')
 
     print('File created at %s' % filepath)
 
