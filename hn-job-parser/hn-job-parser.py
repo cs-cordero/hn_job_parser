@@ -6,16 +6,14 @@ based on given keywords that the user can provide.  The script also has some
 default keyword searches.
 """
 
-import sys
 import requests
 import json
 import datetime
 import re
-
 import argparse
 from functools import partial
-import pandas as pd
 
+import pandas as pd
 from comment_finder import get_top_level_comments
 from validations import validate_args
 
@@ -61,8 +59,10 @@ def search_HN(current_month):
     (current_month current_year)".  It will then search through the search
     results and find the correct HackerNews item page and return its item ID.
 
-    Inputs:     (String) Month for Search in MMMM YYYY format.
-    Outputs:    (String) Hacker News Item ID
+    Args:
+        current_month {str} : Month for Search in MMMM YYYY format.
+    Returns:
+        Hacker News Item ID
     """
 
     # Set up the query
