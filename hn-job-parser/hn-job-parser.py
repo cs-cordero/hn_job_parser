@@ -13,17 +13,78 @@ import datetime
 import re
 from bs4 import BeautifulSoup
 
+import argparse
+from collections import deque
+from hackernews import HackerNews
+
 # Declare Constants Used
-VERSION = '0.1'
+VERSION = '0.3'
 BOILERPLATE = (
-    'HackerNews \'Who is hiring?\' Parser\n'
-    'Created by: Christopher Sabater Corder\n'
+    'HackerNews \'Who is Hiring?\' Parser\n'
+    'Created by: Christopher Sabater Cordero\n'
     'Version %s' % (VERSION)
 )
-VALID_MONTHS = {
-    'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
-    'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'
-}
+VALID_MONTHS = set([
+    'january', 'february', 'march', 'april', 'may', 'june',
+    'july', 'august', 'september', 'october', 'november', 'december'
+])
+
+
+def main(args):
+    """ Entry point
+
+    Inputs:     (List) Sys.argv
+                Possible '--' commands are the following:
+                --keywords (space-separated keywords)
+                --date (Month for Search in MMMM YYYY format)
+                --filepath
+    Outputs:    (.txt) Outputs a text dump of the data pull, stored in the
+                same folder as this program by default.
+    """
+    validated_args = validate_args(args)
+
+    who_is_hiring_item_id = search_HN(validated_args['date'])
+    if who_is_hiring_item_id is None:
+        return False
+
+    pull_comments(who_is_hiring_item_id, validated_args)
+
+
+def validate_args(args):
+    """ Validates the args passed into the command line tool
+
+    Arguments:  argparse.NameSpace() object from argparse.parse_args()
+    Returns:    a dict with the needed arguments, validated
+    Throws:     Exception if invalid strings are provided
+    """
+    keywords = deque()
+    query = deque()
+    for arg in args.search:
+        arg = arg.lower()
+        if arg in ['and', 'or', 'not']:
+            query.append(arg)
+        keywords.append(arg)
+    if not keywords:
+        raise Exception('Invalid search given: {}'.format(' '.join(query)))
+
+
+    date = ' '.join(args.date)
+    year = int(args.date[1])
+    latest_valid_year = datetime.datetime.now().year
+    if (args.date[0].lower() not in VALID_MONTHS or
+        (year < 2010 or year > latest_valid_year)):
+        raise Exception('Invalid date given: {}'.format(date))
+
+    
+    output = './out.csv' if args.output == 'default_loc' else args.output
+
+    return {
+        'keywords': keywords,
+        'query': query,
+        'date': date,
+        'output': output
+    }
+
 
 
 def search_HN(current_month):
@@ -59,7 +120,7 @@ def search_HN(current_month):
     return None
 
 
-def pull_comments(hn_id, keywords):
+def pull_comments(who_is_hiring_item_id, search_args):
     """
     This function will take a HackerNews item id and pull the HTML from it.
     It will then parse the HTML for top-level comments and extract the
@@ -69,108 +130,51 @@ def pull_comments(hn_id, keywords):
                 (List) Search Keywords
     Outputs:    (Dict) Tuples of Author-Body keyed by a unique counter 
     """
-
-    # Scrape data from Hacker News website
-    query = 'https://news.ycombinator.com/item?id=%s' % hn_id
-    r = requests.get(query).text
-    soup = BeautifulSoup(r, 'html.parser')
-    comments = soup.find_all('tr', {'class': 'athing comtr '})
-
-    relevant_comments = {}
-    parser_id = 0
-    for comment in soup.find_all('tr', {'class': 'athing comtr '}):
-        # if not the top level comment, skip to next comment.
-        if not comment.find('img', {'width': 0}):
-            continue
-
-        # extract relevant information
-        try:
-            author = comment.find('a', {'class': 'hnuser'}).get_text().strip()
-            body = comment.find('span', {'class': 'c00'}).get_text().strip()
-        except AttributeError:
-            continue
-        if body.endswith('reply'):
-            body = body[:-5]
-
-        # xando is a well-known user who parses the same thread for
-        # a different service. His post is not a true job listing.
-        if author == 'xando':
-            continue
-
-        # search string for keywords
-        for keyword in keywords:
-            if keyword.upper() in body.upper():
-                relevant_comments[parser_id] = [author, body]
-                parser_id += 1
-                continue
-
-    return relevant_comments
-
-
-def parse_arguments(argv):
-    """
-    Function parses the user-provided arguments, if any.
-
-    Inputs:     (List) Sys.Argv
-    Outputs:    (List) Search Keywords
-                (String) Month for Search in MMMM YYYY format.
-                (String) Output filepath
-    """
-    keywords = ['junior', 'python']
-    current_month = datetime.datetime.now().strftime('%B %Y')
-    filepath = ('./hn_parser_%s.txt'
-                % re.sub(r'\s+', r'_', current_month.lower()))
-
-    args = ' '.join(argv[1:])
-    for command in re.findall(r'--[\w\s]+', args):
-        command = command.split()
-        if command[0] == '--keywords':
-            keywords = command[1:]
-        elif command[0] == '--date':
-            if command[1].upper() in VALID_MONTHS and len(command[2]) == 4:
-                current_month = '%s %s' % (command[1].title(), command[2])
-            else:
-                raise Exception
-        elif command[0] == '--filepath':
-            if command[1].endswith('.txt'):
-                filepath = command[1]
-            else:
-                filepath = command[1] + '.txt'
-
-    return keywords, current_month, filepath
-
-
-def main(argv):
-    """
-    Main driver of the script, calls other functions and produces the
-    desired output.
-
-    Inputs:     (List) Sys.argv
-                Possible '--' commands are the following:
-                --keywords (space-separated keywords)
-                --date (Month for Search in MMMM YYYY format)
-                --filepath
-    Outputs:    (.txt) Outputs a text dump of the data pull, stored in the
-                same folder as this program by default.
-    """
-    keywords, current_month, filepath = parse_arguments(argv)
-    hn_id = search_HN(current_month)
-    if hn_id is None:
-        return False
-    comments = pull_comments(hn_id, keywords)
-
-    # write to document
-    with open(filepath, 'w') as outfile:
-        outfile.write(BOILERPLATE + '\n')
-        outfile.write('Month Searched: %s\n' % current_month)
-        outfile.write('Keywords Used: %s\n\n' % ', '.join(keywords))
-        for key in comments:
-            outfile.write('>>>> %s: \n' % key)
-            outfile.write(comments[key][0] + ' --- \n')
-            outfile.write(comments[key][1] + '\n\n')
-
-    print('File created at %s' % filepath)
+    url_to_hn_page = 'https://news.ycombinator.com/item?id=%s' % who_is_hiring_item_id
+    response = requests.get(url_to_hn_page)
+    if response.status_code != 200:
+        raise Exception('Received status code from HN: ', response.status_code)
+    
+    html = response.text
+    with open('response.html', 'w') as f:
+        f.write(html)
 
 
 if __name__ == '__main__':
-    main(sys.argv)
+    """
+    Parses the CLI arguments and runs the main() function
+
+    Args:
+        --search : A list of space-delimited keywords that use AND/OR/NOT and
+                   parentheses to group the search terms.
+        --output : Sets the output path
+        --date   : MMM YYYY format of the month to search for jobs
+    """
+    parser = argparse.ArgumentParser(
+        description = 'Scans HN Who is Hiring Thread'
+    )
+    parser.add_argument('-s', '--search',
+            action='store',
+            default=['python'],
+            nargs='+',
+            type=str,
+            help='search string of space-delimited keywords. may use AND OR and NOT',
+            dest='search'
+    )
+    parser.add_argument('-o', '--output',
+            action='store',
+            default='default_loc',
+            type=str,
+            help='filepath to where the output should go',
+            dest='output'
+    )
+    parser.add_argument('-d', '--date',
+            action='store',
+            default=datetime.datetime.now().strftime('%B %Y').split(' '),
+            nargs=2,
+            type=str,
+            help='MMM YYYY format of month to search for jobs',
+            dest='date'
+    )
+
+    main(parser.parse_args())
