@@ -1,33 +1,42 @@
 # Hacker News Job Parser
 
-This Hacker News Job Parser tool pulls job listings from the latest month's Hacker News "Who is hiring" post.  The program accepts custom keyword searches and can also specify the Month Year to pull the job listings from.
+This Hacker News Job Parser CLI tool pulls job listings from the latest month's Hacker News "Who is Hiring" post.  [Here](https://news.ycombinator.com/item?id=14901313) is an example of such a post.
 
-## Getting Started
+Instead of CTRL+F'ing through the entire thread with different key word searches, this tool can perform complex, google-like search queries against all top-level comments in the thread and return a CSV file with all relevant comments listed.  For example, if you're interested in all comments with mentions of 'Python' and 'Junior' (for you junior devs out there), you could pass into the CLI the terms "python and junior" and voila, it will find all comments with both search terms listed.  If you want to only find comments with the words "New York City", you could do so as well.
 
-These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See deployment for notes on how to deploy the project on a live system.
+See below for usage descriptions.
+
 
 ### Prerequisites
 
+This CLI uses BeautifulSoup, Pandas, and Requests. Other dependencies are provided in the `requirements.txt` file.  Clone this repository to your computer and then run the following command to have pip install everything for you.
+
+
 ```
-pip install requests
-pip install beautifulsoup
+pip install -r requirements.txt
 ```
 
 ### Usage
 ```
-    python hnparser.py [optional-arguments]
+    python hn-job-parser/hn-job-parser.py [arguments]
 
     Optional Arguments:
-    --keywords [space-delimited keywords]
-    --date [Month Year in MMMM YYYY format]
-    --filepath [your-filepath-here]
+        --search [space-delimited keywords]
+        --date [Month Year in MMMM YYYY format]
+        --output [your-filepath-here]
+
+    Examples:
+        python hn-job-parser/hn-job-parser.py --search python and junior
+        python hn-job-parser/hn-job-parser.py --search python and "new york"
+        python hn-job-parser/hn-job-parser.py --search python and ("new york" or NY or NYC)
+        (if in bash:)
+        python hn-job-parser/hn-job-parser.py --search python and \("new york" or NY or NYC\)
 ```
 
-## To-Do
-*   Deploy to pip for people to use!
-*   Allow for keyword AND searching, i.e., 'junior' and 'python' together, not just separately.
-*   Should I allow for the user to output to a different file instead of a .txt?
-*   Clean output and make prettier?
+The `--search` argument provides the following features:
+* Search Term Concatenators:  `AND`, `OR`, `NOT`
+* Search Term Groupers:  `(` `)` -- note that depending on your CLI, you may need to escape these characters.  For example, in bash, you would use `\(` and `\)`.
+* You can group multiple word 'terms' together with quotations "", e.g., "New York City"
 
 ## Authors
 
