@@ -1,4 +1,5 @@
 
+import pandas as pd
 from bs4 import BeautifulSoup, NavigableString
 
 with open('response.html', 'r') as f:
@@ -45,6 +46,6 @@ def extract_data(hn_comment):
 
     return { 'user': user, 'title': title, 'body': body }
 
-f = get_top_level_comments(soup)
-g = [extract_data(x) for x in f]
-import pdb; pdb.set_trace()
+top_level_comments = pd.DataFrame([extract_data(comment)
+                                   for comment
+                                   in get_top_level_comments(soup)])

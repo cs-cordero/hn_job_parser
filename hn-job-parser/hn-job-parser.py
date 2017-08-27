@@ -11,11 +11,12 @@ import requests
 import json
 import datetime
 import re
-from bs4 import BeautifulSoup
 
 import argparse
+from functools import partial
 from collections import deque
-from hackernews import HackerNews
+
+from comment_finder import top_level_comments
 
 # Declare Constants Used
 VERSION = '0.3'
@@ -31,23 +32,41 @@ VALID_MONTHS = set([
 
 
 def main(args):
-    """ Entry point
+    """
+    Entry point
 
-    Inputs:     (List) Sys.argv
-                Possible '--' commands are the following:
-                --keywords (space-separated keywords)
-                --date (Month for Search in MMMM YYYY format)
-                --filepath
-    Outputs:    (.txt) Outputs a text dump of the data pull, stored in the
-                same folder as this program by default.
+    Args:
+        args : Parsed arguments from argparse
+    Returns:
+        A CSV file with the results
     """
     validated_args = validate_args(args)
 
-    who_is_hiring_item_id = search_HN(validated_args['date'])
-    if who_is_hiring_item_id is None:
-        return False
+    # who_is_hiring_item_id = search_HN(validated_args['date'])
+    # if who_is_hiring_item_id is None:
+        #return False
 
-    pull_comments(who_is_hiring_item_id, validated_args)
+    # pull_comments(who_is_hiring_item_id, validated_args)
+
+    def search(term, body):
+        return term.lower() in body.lower()
+
+    for search_term in set(validated_args['keywords']):
+        fn = partial(search, search_term)
+        top_level_comments[search_term] = top_level_comments['body'].apply(fn)
+
+    def cut(row):
+        query = validated_args['query']
+        row_bools = [row[term] for term in validated_args['keywords']]
+        return eval(query.format(*row_bools))
+
+    filtered = top_level_comments.apply(cut, axis=1)
+    final = top_level_comments[filtered].copy()
+    final['date'] = validated_args['date']
+    for keyword in set(validated_args['keywords']):
+        del final[keyword]
+    final = final[['date', 'user', 'title', 'body']]
+    import pdb; pdb.set_trace()
 
 
 def validate_args(args):
@@ -57,15 +76,54 @@ def validate_args(args):
     Returns:    a dict with the needed arguments, validated
     Throws:     Exception if invalid strings are provided
     """
-    keywords = deque()
-    query = deque()
-    for arg in args.search:
-        arg = arg.lower()
-        if arg in ['and', 'or', 'not']:
-            query.append(arg)
-        keywords.append(arg)
+    groups = 0
+    keywords = []
+    search_args = deque(args.search)
+    parsed_query = deque()
+    while search_args:
+        arg_to_parse = search_args.popleft().lower()
+        temp_str = ''
+
+        if arg_to_parse in ('and', 'or', 'not'):
+            if len(parsed_query) > 0 and parsed_query[-1] in ('and', 'or', 'and not'):
+                parsed_query.pop()
+            arg_to_parse = arg_to_parse if arg_to_parse != 'not' else 'and not'
+            parsed_query.append(arg_to_parse.lower())
+            continue
+
+        for char in arg_to_parse:
+            if char == '(':
+                parsed_query.append('(')
+                groups += 1
+            elif char == ')':
+                if groups <= 0:
+                    raise Exception("You fucked up on the groupings")
+                groups -= 1
+
+                if temp_str:
+                    parsed_query.append('{}')
+                    keywords.append(temp_str)
+                    temp_str = ''
+                elif len(parsed_query) > 0 and parsed_query[-1] in ('and', 'or', 'not'):
+                    parsed_query.pop()
+
+                parsed_query.append(')')
+            else:
+                temp_str += char
+        else:
+            if temp_str:
+                if len(parsed_query) > 0 and parsed_query[-1] == ')':
+                    parsed_query.append('or')
+                parsed_query.append('{}')
+                if search_args:
+                    parsed_query.append('or')
+                keywords.append(temp_str)
+
+    if groups > 0:
+        raise Exception("You fucked up on the groupings")
+
     if not keywords:
-        raise Exception('Invalid search given: {}'.format(' '.join(query)))
+        raise Exception('Invalid search given: {}'.format(' '.join(parsed_query)))
 
 
     date = ' '.join(args.date)
@@ -78,9 +136,11 @@ def validate_args(args):
     
     output = './out.csv' if args.output == 'default_loc' else args.output
 
+    import pdb; pdb.set_trace()
+
     return {
         'keywords': keywords,
-        'query': query,
+        'query': ' '.join(parsed_query),
         'date': date,
         'output': output
     }
