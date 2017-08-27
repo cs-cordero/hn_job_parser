@@ -1,3 +1,5 @@
 *.txt
 *.swp
 *sublime*
+*.csv
+__pycache__
