@@ -2,9 +2,6 @@
 import pandas as pd
 from bs4 import BeautifulSoup, NavigableString
 
-with open('response.html', 'r') as f:
-    soup = f.read()
-
 def get_top_level_comments(html):
     """
     Gets the top level comments from a HackerNews thread.
@@ -16,11 +13,12 @@ def get_top_level_comments(html):
     Args:
         html : html text from a request.get call
     Returns:
-        An iterator of the top level comments
+        A Pandas DataFrame of the top level comments
     """
     soup = BeautifulSoup(html, 'html.parser')
     all_comments = soup.select('tr.athing.comtr')
-    return filter(lambda x : x.find('img')['width'] == '0', all_comments)
+    top_comments = filter(lambda x: x.find('img')['width'] == '0', all_comments)
+    return pd.DataFrame([extract_data(comment) for comment in top_comments])
 
 def extract_data(hn_comment):
     """
@@ -45,7 +43,3 @@ def extract_data(hn_comment):
     title = title.replace('\n', ' ').strip()
 
     return { 'user': user, 'title': title, 'body': body }
-
-top_level_comments = pd.DataFrame([extract_data(comment)
-                                   for comment
-                                   in get_top_level_comments(soup)])

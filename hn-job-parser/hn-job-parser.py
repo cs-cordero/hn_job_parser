@@ -14,21 +14,18 @@ import re
 
 import argparse
 from functools import partial
-from collections import deque
+import pandas as pd
 
-from comment_finder import top_level_comments
+from comment_finder import get_top_level_comments
+from validations import validate_args
 
-# Declare Constants Used
+pd.options.mode.chained_assignment = None  # default='warn'
 VERSION = '0.3'
 BOILERPLATE = (
     'HackerNews \'Who is Hiring?\' Parser\n'
     'Created by: Christopher Sabater Cordero\n'
     'Version %s' % (VERSION)
 )
-VALID_MONTHS = set([
-    'january', 'february', 'march', 'april', 'may', 'june',
-    'july', 'august', 'september', 'october', 'november', 'december'
-])
 
 
 def main(args):
@@ -40,112 +37,23 @@ def main(args):
     Returns:
         A CSV file with the results
     """
+    print(BOILERPLATE)
     validated_args = validate_args(args)
 
-    # who_is_hiring_item_id = search_HN(validated_args['date'])
-    # if who_is_hiring_item_id is None:
-        #return False
+    who_is_hiring_item_id = search_HN(validated_args['date'])
+    comments = pull_comments_from_thread(who_is_hiring_item_id)
+    search = search_comments_for_terms(validated_args['keywords'], comments)
+    filtered = apply_search_string(validated_args['keyword_order'],
+                                   validated_args['query'],
+                                   search)
+    final = clean_data(validated_args['keywords'],
+                       validated_args['date'],
+                       filtered)
 
-    # pull_comments(who_is_hiring_item_id, validated_args)
-
-    def search(term, body):
-        return term.lower() in body.lower()
-
-    for search_term in set(validated_args['keywords']):
-        fn = partial(search, search_term)
-        top_level_comments[search_term] = top_level_comments['body'].apply(fn)
-
-    def cut(row):
-        query = validated_args['query']
-        row_bools = [row[term] for term in validated_args['keywords']]
-        return eval(query.format(*row_bools))
-
-    filtered = top_level_comments.apply(cut, axis=1)
-    final = top_level_comments[filtered].copy()
-    final['date'] = validated_args['date']
-    for keyword in set(validated_args['keywords']):
-        del final[keyword]
-    final = final[['date', 'user', 'title', 'body']]
-    import pdb; pdb.set_trace()
-
-
-def validate_args(args):
-    """ Validates the args passed into the command line tool
-
-    Arguments:  argparse.NameSpace() object from argparse.parse_args()
-    Returns:    a dict with the needed arguments, validated
-    Throws:     Exception if invalid strings are provided
-    """
-    groups = 0
-    keywords = []
-    search_args = deque(args.search)
-    parsed_query = deque()
-    while search_args:
-        arg_to_parse = search_args.popleft().lower()
-        temp_str = ''
-
-        if arg_to_parse in ('and', 'or', 'not'):
-            if len(parsed_query) > 0 and parsed_query[-1] in ('and', 'or', 'and not'):
-                parsed_query.pop()
-            arg_to_parse = arg_to_parse if arg_to_parse != 'not' else 'and not'
-            parsed_query.append(arg_to_parse.lower())
-            continue
-
-        for char in arg_to_parse:
-            if char == '(':
-                parsed_query.append('(')
-                groups += 1
-            elif char == ')':
-                if groups <= 0:
-                    raise Exception("You fucked up on the groupings")
-                groups -= 1
-
-                if temp_str:
-                    parsed_query.append('{}')
-                    keywords.append(temp_str)
-                    temp_str = ''
-                elif len(parsed_query) > 0 and parsed_query[-1] in ('and', 'or', 'not'):
-                    parsed_query.pop()
-
-                parsed_query.append(')')
-            else:
-                temp_str += char
-        else:
-            if temp_str:
-                if len(parsed_query) > 0 and parsed_query[-1] == ')':
-                    parsed_query.append('or')
-                parsed_query.append('{}')
-                if search_args:
-                    parsed_query.append('or')
-                keywords.append(temp_str)
-
-    if groups > 0:
-        raise Exception("You fucked up on the groupings")
-
-    if not keywords:
-        raise Exception('Invalid search given: {}'.format(' '.join(parsed_query)))
-
-
-    date = ' '.join(args.date)
-    year = int(args.date[1])
-    latest_valid_year = datetime.datetime.now().year
-    if (args.date[0].lower() not in VALID_MONTHS or
-        (year < 2010 or year > latest_valid_year)):
-        raise Exception('Invalid date given: {}'.format(date))
-
-    
-    output = './out.csv' if args.output == 'default_loc' else args.output
-
-    import pdb; pdb.set_trace()
-
-    return {
-        'keywords': keywords,
-        'query': ' '.join(parsed_query),
-        'date': date,
-        'output': output
-    }
-
-
+    print('Found {} entries.'.format(len(final)))
+    if len(final) > 0:
+        final.to_csv(validated_args['output'])
+        print('Output successfully created at', validated_args['output'])
 
 def search_HN(current_month):
     """
@@ -176,29 +84,73 @@ def search_HN(current_month):
             return hit['objectID']
 
     # Return None if unable to find the correct title anywhere.
-    print('Unable to Locate for %s' % (current_month))
-    return None
+    raise Exception('Unable to Locate for %s' % (current_month))
 
-
-def pull_comments(who_is_hiring_item_id, search_args):
+def pull_comments_from_thread(who_is_hiring_item_id):
     """
     This function will take a HackerNews item id and pull the HTML from it.
     It will then parse the HTML for top-level comments and extract the
     author and text body and store it into a dictionary to be output later.
 
-    Inputs:     (String) HackerNews Item ID
-                (List) Search Keywords
-    Outputs:    (Dict) Tuples of Author-Body keyed by a unique counter 
+    Args:
+        who_is_hiring_item_id {str} : the hn item id to the who is hiring page
+    Returns:
+        A Pandas DataFrame with all Top Level Comments
     """
-    url_to_hn_page = 'https://news.ycombinator.com/item?id=%s' % who_is_hiring_item_id
-    response = requests.get(url_to_hn_page)
+    url = 'https://news.ycombinator.com/item?id=%s' % who_is_hiring_item_id
+    response = requests.get(url)
+
     if response.status_code != 200:
         raise Exception('Received status code from HN: ', response.status_code)
     
-    html = response.text
-    with open('response.html', 'w') as f:
-        f.write(html)
+    return get_top_level_comments(response.text)
 
+def search_comments_for_terms(terms, comments):
+    """
+    Adds Boolean columns indicating whether a search term was located
+
+    Args:
+        terms {tuple} : a collection of unique search terms
+        comments {DataFrame} : a Pandas DataFrame with comment data
+    Returns:
+        A Pandas DataFrame with the updated columns
+    """
+
+    def search(term, row):
+        return term.lower() in (row['body'] + row['title']).lower()
+
+    for term in terms:
+        fn = partial(search, term)
+        comments[term] = comments.apply(fn, axis=1)
+
+    return comments
+
+def apply_search_string(term_order, query, comments):
+    """
+    Applies the cleaned query to the values generated by the comment search
+
+    Args:
+        query {str} : the cleaned query search string
+        term_order {tuple} : the non-deduped, ordered terms as they appear
+        comments {DataFrame} : a Pandas dataFrame with comment data
+    Returns:
+        A Pandas DataFrame with the updated columns
+    """
+    def cut(row):
+        row_bools = [row[term] for term in term_order]
+        return eval(query.format(*row_bools))
+
+    mask = comments.apply(cut, axis=1)
+    return comments[mask]
+
+def clean_data(terms, date, comments):
+    """ 
+    Removes boolean values, adds date column, reorders columns
+    """
+    comments['date'] = date
+    for term in terms:
+        del comments[term]
+    return comments[['date', 'user', 'title', 'body']]
 
 if __name__ == '__main__':
     """
